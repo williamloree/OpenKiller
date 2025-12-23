@@ -43,14 +43,6 @@ npm start
 npm run build
 ```
 
-## Documentation
-
-Consultez le dossier [docs/](docs/) pour la documentation complète :
-- [Guide de démarrage](docs/QUICKSTART.md)
-- [Vue d'ensemble du projet](docs/PROJECT_OVERVIEW.md)
-- [Guide de contribution](docs/CONTRIBUTING.md)
-- [Historique des changements](docs/CHANGELOG.md)
-
 ## Licence
 
 MIT - Voir [LICENSE](LICENSE) pour plus de détails.
