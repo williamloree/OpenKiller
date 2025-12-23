@@ -9,10 +9,16 @@ on:
       - main
     types: [closed]
 
+permissions:
+  contents: write
+  pull-requests: write
+
 jobs:
   version:
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.merged == true)
+    if: |
+      !contains(github.event.head_commit.message, '[skip ci]') &&
+      (github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.merged == true))
     outputs:
       new_version: ${{ steps.version.outputs.new_version }}
       version_type: ${{ steps.detect.outputs.version_type }}
@@ -38,15 +44,26 @@ jobs:
         id: detect
         run: |
           # Récupérer les messages de commits depuis le dernier tag
-          COMMITS=$(git log $(git describe --tags --abbrev=0 2>/dev/null || echo "")..HEAD --pretty=format:"%s" 2>/dev/null || echo "")
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+
+          if [ -z "$LAST_TAG" ]; then
+            # Pas de tag précédent, prendre tous les commits
+            COMMITS=$(git log --pretty=format:"%s" 2>/dev/null || echo "")
+          else
+            # Récupérer commits depuis le dernier tag
+            COMMITS=$(git log ${LAST_TAG}..HEAD --pretty=format:"%s" 2>/dev/null || echo "")
+          fi
+
+          echo "Commits analysés:"
+          echo "$COMMITS"
 
           VERSION_TYPE="patch"
 
           # Détecter MAJOR: breaking changes
-          if echo "$COMMITS" | grep -qiE "^(BREAKING CHANGE|feat!|fix!|refactor!)"; then
+          if echo "$COMMITS" | grep -qE "^(BREAKING CHANGE|feat!|fix!|refactor!)"; then
             VERSION_TYPE="major"
           # Détecter MINOR: nouvelles fonctionnalités
-          elif echo "$COMMITS" | grep -qiE "^feat"; then
+          elif echo "$COMMITS" | grep -qE "^feat"; then
             VERSION_TYPE="minor"
           # Détecter PATCH: corrections de bugs (par défaut)
           else
@@ -80,6 +97,12 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Pull latest changes
+        run: git pull origin main
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
