@@ -18,8 +18,7 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
-    minWidth: 800,
-    minHeight: 600,
+    resizable: false,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -27,7 +26,7 @@ function createWindow() {
     },
     backgroundColor: "#1a1a1a",
     icon: path.join(__dirname, "..", "..", "assets", "icon.png"),
-    titleBarStyle: "default",
+    autoHideMenuBar: true,
     show: false,
   });
 

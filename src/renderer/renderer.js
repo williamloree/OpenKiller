@@ -11,16 +11,10 @@ let sortDirection = "asc";
 let currentKillPid = null;
 let currentKillPort = null;
 let currentKillProcess = null;
+let currentPage = "ports"; // "ports" ou "favorites"
 
-// Ports favoris configurables
-const FAVORITE_PORTS = [
-  { port: 3000, name: "Node.js Dev", description: "Serveur de développement" },
-  { port: 8080, name: "HTTP Alt", description: "Serveur web alternatif" },
-  { port: 5432, name: "PostgreSQL", description: "Base de données" },
-  { port: 3306, name: "MySQL", description: "Base de données" },
-  { port: 27017, name: "MongoDB", description: "Base de données NoSQL" },
-  { port: 6379, name: "Redis", description: "Cache mémoire" },
-];
+// Ports favoris - chargés depuis localStorage
+let favoritePorts = [];
 
 // === Initialisation ===
 document.addEventListener("DOMContentLoaded", () => {
@@ -32,6 +26,9 @@ document.addEventListener("DOMContentLoaded", () => {
  * Initialise l'application et tous les écouteurs d'événements
  */
 function initializeApp() {
+  // Charger les favoris depuis localStorage
+  loadFavorites();
+
   // Charger les ports au démarrage
   loadPorts();
 
@@ -41,6 +38,9 @@ function initializeApp() {
   // Afficher les ports favoris
   renderFavorites();
 
+  // Mettre à jour les badges
+  updateTabBadges();
+
   // Actualiser automatiquement toutes les 10 secondes
   setInterval(loadPorts, 10000);
 }
@@ -49,6 +49,15 @@ function initializeApp() {
  * Configure tous les écouteurs d'événements de l'interface
  */
 function setupEventListeners() {
+  // Navigation par onglets
+  const tabs = document.querySelectorAll(".tab");
+  tabs.forEach((tab) => {
+    tab.addEventListener("click", () => {
+      const tabName = tab.dataset.tab;
+      switchTab(tabName);
+    });
+  });
+
   // Bouton d'actualisation
   const refreshBtn = document.getElementById("refreshBtn");
   refreshBtn.addEventListener("click", () => {
@@ -81,10 +90,19 @@ function setupEventListeners() {
   const confirmKillBtn = document.getElementById("confirmKillBtn");
   confirmKillBtn.addEventListener("click", confirmKillProcess);
 
+  // Bouton d'ajout de favori
+  const addFavoriteBtn = document.getElementById("addFavoriteBtn");
+  addFavoriteBtn.addEventListener("click", showAddFavoriteModal);
+
+  // Bouton de sauvegarde du favori
+  const saveFavoriteBtn = document.getElementById("saveFavoriteBtn");
+  saveFavoriteBtn.addEventListener("click", saveFavorite);
+
   // Fermeture du modal avec la touche Échap
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
       closeModal();
+      closeAddFavoriteModal();
     }
   });
 
@@ -93,6 +111,13 @@ function setupEventListeners() {
   modal.addEventListener("click", (e) => {
     if (e.target === modal) {
       closeModal();
+    }
+  });
+
+  const addFavoriteModal = document.getElementById("addFavoriteModal");
+  addFavoriteModal.addEventListener("click", (e) => {
+    if (e.target === addFavoriteModal) {
+      closeAddFavoriteModal();
     }
   });
 }
@@ -125,6 +150,9 @@ async function loadPorts() {
 
     // Mettre à jour les favoris
     updateFavorites();
+
+    // Mettre à jour les badges des onglets
+    updateTabBadges();
 
     // Cacher l'indicateur de chargement
     loadingState.style.display = "none";
@@ -397,13 +425,141 @@ async function confirmKillProcess() {
 }
 
 /**
+ * Charge les favoris depuis localStorage
+ */
+function loadFavorites() {
+  const saved = localStorage.getItem("favoritePorts");
+  if (saved) {
+    try {
+      favoritePorts = JSON.parse(saved);
+    } catch (error) {
+      console.error("Erreur lors du chargement des favoris:", error);
+      favoritePorts = [];
+    }
+  }
+}
+
+/**
+ * Sauvegarde les favoris dans localStorage
+ */
+function saveFavoritesToStorage() {
+  localStorage.setItem("favoritePorts", JSON.stringify(favoritePorts));
+}
+
+/**
+ * Change d'onglet et affiche la page correspondante
+ */
+function switchTab(tabName) {
+  currentPage = tabName;
+
+  // Mettre à jour les onglets actifs
+  document.querySelectorAll(".tab").forEach((tab) => {
+    if (tab.dataset.tab === tabName) {
+      tab.classList.add("active");
+    } else {
+      tab.classList.remove("active");
+    }
+  });
+
+  // Cacher toutes les pages
+  document.querySelectorAll(".page").forEach((page) => {
+    page.classList.remove("active");
+  });
+
+  // Afficher la page demandée
+  if (tabName === "favorites") {
+    document.getElementById("favoritesPage").classList.add("active");
+    renderFavorites();
+  } else {
+    document.getElementById("portsPage").classList.add("active");
+  }
+}
+
+/**
+ * Affiche une page spécifique (pour compatibilité)
+ */
+function showPage(pageName) {
+  switchTab(pageName);
+}
+
+/**
+ * Affiche le modal d'ajout de favori
+ */
+function showAddFavoriteModal() {
+  document.getElementById("favoritePort").value = "";
+  document.getElementById("favoriteName").value = "";
+  document.getElementById("favoriteDescription").value = "";
+  document.getElementById("addFavoriteModal").style.display = "flex";
+}
+
+/**
+ * Ferme le modal d'ajout de favori
+ */
+function closeAddFavoriteModal() {
+  document.getElementById("addFavoriteModal").style.display = "none";
+}
+
+/**
+ * Sauvegarde un nouveau favori
+ */
+function saveFavorite() {
+  const port = parseInt(document.getElementById("favoritePort").value);
+  const name = document.getElementById("favoriteName").value.trim();
+  const description = document.getElementById("favoriteDescription").value.trim();
+
+  if (!port || port < 1 || port > 65535) {
+    showToast("Port invalide. Doit être entre 1 et 65535", "error");
+    return;
+  }
+
+  if (!name) {
+    showToast("Le nom est requis", "error");
+    return;
+  }
+
+  // Vérifier si le port existe déjà
+  if (favoritePorts.some((f) => f.port === port)) {
+    showToast("Ce port est déjà dans vos favoris", "error");
+    return;
+  }
+
+  // Ajouter le favori
+  favoritePorts.push({ port, name, description: description || "" });
+  saveFavoritesToStorage();
+  renderFavorites();
+  updateTabBadges();
+  closeAddFavoriteModal();
+  showToast(`Port ${port} ajouté aux favoris`, "success");
+}
+
+/**
+ * Supprime un favori
+ */
+function deleteFavorite(port) {
+  favoritePorts = favoritePorts.filter((f) => f.port !== port);
+  saveFavoritesToStorage();
+  renderFavorites();
+  updateTabBadges();
+  showToast(`Port ${port} retiré des favoris`, "success");
+}
+
+/**
  * Affiche les cartes de ports favoris
  */
 function renderFavorites() {
   const container = document.getElementById("favoritesPorts");
+  const emptyState = document.getElementById("emptyFavorites");
+
   container.innerHTML = "";
 
-  FAVORITE_PORTS.forEach((favorite) => {
+  if (favoritePorts.length === 0) {
+    emptyState.style.display = "flex";
+    return;
+  }
+
+  emptyState.style.display = "none";
+
+  favoritePorts.forEach((favorite) => {
     const card = createFavoriteCard(favorite);
     container.appendChild(card);
   });
@@ -413,29 +569,10 @@ function renderFavorites() {
  * Met à jour l'état des cartes de favoris
  */
 function updateFavorites() {
-  FAVORITE_PORTS.forEach((favorite) => {
-    const card = document.querySelector(
-      `[data-favorite-port="${favorite.port}"]`
-    );
-    if (!card) return;
-
-    const isActive = allPorts.some(
-      (p) => String(p.port) === String(favorite.port)
-    );
-    const statusEl = card.querySelector(".favorite-status");
-
-    if (isActive) {
-      card.classList.add("active");
-      card.classList.remove("inactive");
-      statusEl.className = "favorite-status status-active";
-      statusEl.innerHTML = '<span class="status-dot"></span>Actif';
-    } else {
-      card.classList.remove("active");
-      card.classList.add("inactive");
-      statusEl.className = "favorite-status status-inactive";
-      statusEl.innerHTML = '<span class="status-dot"></span>Inactif';
-    }
-  });
+  // Recréer les cartes pour mettre à jour les boutons Kill et les statuts
+  if (currentPage === "favorites") {
+    renderFavorites();
+  }
 }
 
 /**
@@ -448,23 +585,97 @@ function createFavoriteCard(favorite) {
   card.className = "favorite-card";
   card.setAttribute("data-favorite-port", favorite.port);
 
+  const isActive = allPorts.some((p) => String(p.port) === String(favorite.port));
+  const activePort = allPorts.find((p) => String(p.port) === String(favorite.port));
+
   card.innerHTML = `
     <div class="favorite-port">${favorite.port}</div>
     <div class="favorite-name">${favorite.name}</div>
-    <span class="favorite-status status-inactive">
-      <span class="status-dot"></span>
-      Inactif
-    </span>
+    ${
+      favorite.description
+        ? `<div class="favorite-description">${favorite.description}</div>`
+        : ""
+    }
+    <div class="favorite-actions">
+      ${isActive ? `
+        <button class="btn btn-danger btn-small kill-btn" data-pid="${activePort?.pid}" data-port="${favorite.port}" data-process="${activePort?.processName || 'Inconnu'}">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M18 6L6 18M6 6L18 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+          <span>Kill</span>
+        </button>
+      ` : ''}
+      <button class="btn btn-secondary btn-small view-btn">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="11" cy="11" r="8" stroke="currentColor" stroke-width="2"/>
+          <path d="M21 21L16.65 16.65" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+        <span>Voir</span>
+      </button>
+      <button class="btn btn-danger btn-small delete-btn">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span>Suppr.</span>
+      </button>
+    </div>
   `;
 
-  // Cliquer sur une carte filtre ce port
-  card.addEventListener("click", () => {
+  // Bouton pour kill le processus (si actif)
+  const killBtn = card.querySelector(".kill-btn");
+  if (killBtn) {
+    killBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const pid = killBtn.dataset.pid;
+      const port = killBtn.dataset.port;
+      const process = killBtn.dataset.process;
+      showKillModal({ pid, port, processName: process });
+    });
+  }
+
+  // Bouton pour voir le port
+  const viewBtn = card.querySelector(".view-btn");
+  viewBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    showPage("ports");
     const searchInput = document.getElementById("searchInput");
     searchInput.value = String(favorite.port);
     handleSearch();
   });
 
+  // Bouton pour supprimer le favori
+  const deleteBtn = card.querySelector(".delete-btn");
+  deleteBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    deleteFavorite(favorite.port);
+  });
+
+  // Appliquer la classe active/inactive à la carte
+  if (isActive) {
+    card.classList.add("active");
+    card.classList.remove("inactive");
+  } else {
+    card.classList.remove("active");
+    card.classList.add("inactive");
+  }
+
   return card;
+}
+
+/**
+ * Met à jour les badges des onglets
+ */
+function updateTabBadges() {
+  const portsTabBadge = document.getElementById("portsTabBadge");
+  const favoritesTabBadge = document.getElementById("favoritesTabBadge");
+
+  if (portsTabBadge) {
+    portsTabBadge.textContent = allPorts.length;
+  }
+
+  if (favoritesTabBadge) {
+    favoritesTabBadge.textContent = favoritePorts.length;
+  }
 }
 
 /**
@@ -544,3 +755,4 @@ function showToast(message, type = "info") {
 
 // Exposer les fonctions nécessaires globalement pour le HTML
 window.closeModal = closeModal;
+window.closeAddFavoriteModal = closeAddFavoriteModal;
