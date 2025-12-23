@@ -70,6 +70,62 @@
             <p class="subtitle">Gestionnaire de ports système</p>
           </div>
         </div>
+
+        <!-- Search bar in header -->
+        <div class="header-search">
+          <div class="search-wrapper">
+            <svg
+              class="search-icon"
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <circle
+                cx="11"
+                cy="11"
+                r="8"
+                stroke="currentColor"
+                stroke-width="2"
+              />
+              <path
+                d="M21 21L16.65 16.65"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+              />
+            </svg>
+            <input
+              type="text"
+              id="searchInput"
+              class="search-input"
+              placeholder="Rechercher par port ou application..."
+              autocomplete="off"
+            />
+            <button
+              id="clearSearch"
+              class="clear-search"
+              title="Effacer la recherche"
+            >
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M18 6L6 18M6 6L18 18"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+              </svg>
+            </button>
+          </div>
+        </div>
+
         <div class="header-actions">
           <button
             id="refreshBtn"
@@ -105,77 +161,37 @@
 
     <!-- Conteneur principal -->
     <main class="main-content">
-      <!-- Section Favoris -->
-      <!-- <section class="favorites-section">
-      <h2 class="section-title">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z" fill="currentColor"/>
-        </svg>
-        Ports Favoris
-      </h2>
-      <div id="favoritesPorts" class="favorites-grid">
-        Les ports favoris seront injectés ici dynamiquement
-      </div>
-    </section> -->
-
-      <!-- Section de recherche et filtres -->
-      <section class="search-section">
-        <div class="search-wrapper">
-          <svg
-            class="search-icon"
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            xmlns="http://www.w3.org/2000/svg"
-          >
-            <circle
-              cx="11"
-              cy="11"
-              r="8"
-              stroke="currentColor"
-              stroke-width="2"
-            />
-            <path
-              d="M21 21L16.65 16.65"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-            />
-          </svg>
-          <input
-            type="text"
-            id="searchInput"
-            class="search-input"
-            placeholder="Rechercher par port ou application..."
-            autocomplete="off"
-          />
-          <button
-            id="clearSearch"
-            class="clear-search"
-            title="Effacer la recherche"
-          >
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <path
-                d="M18 6L6 18M6 6L18 18"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-              />
+      <!-- Système d'onglets -->
+      <div class="tabs-container">
+        <div class="tabs">
+          <button class="tab active" data-tab="ports">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/>
+              <circle cx="12" cy="12" r="3" fill="currentColor"/>
+              <line x1="12" y1="2" x2="12" y2="7" stroke="currentColor" stroke-width="2"/>
+              <line x1="12" y1="17" x2="12" y2="22" stroke="currentColor" stroke-width="2"/>
+              <line x1="2" y1="12" x2="7" y2="12" stroke="currentColor" stroke-width="2"/>
+              <line x1="17" y1="12" x2="22" y2="12" stroke="currentColor" stroke-width="2"/>
             </svg>
+            <span>Ports ouverts</span>
+            <span class="tab-badge" id="portsTabBadge">0</span>
+          </button>
+          <button class="tab" data-tab="favorites">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+            </svg>
+            <span>Favoris</span>
+            <span class="tab-badge" id="favoritesTabBadge">0</span>
           </button>
         </div>
+      </div>
+
+      <!-- Page des ports (par défaut) -->
+      <div id="portsPage" class="page active">
         <div class="filter-info">
           <span id="portCount" class="port-count">0 ports</span>
           <span id="filterStatus" class="filter-status"></span>
         </div>
-      </section>
 
       <!-- Section du tableau des ports -->
       <section class="ports-section">
@@ -267,6 +283,35 @@
           </div>
         </div>
       </section>
+      </div>
+
+      <!-- Page des favoris -->
+      <div id="favoritesPage" class="page">
+        <div class="favorites-header">
+          <h2 class="section-title">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z" fill="currentColor"/>
+            </svg>
+            Mes Favoris
+          </h2>
+          <button id="addFavoriteBtn" class="btn btn-primary">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M12 5V19M5 12H19" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+            <span>Ajouter un favori</span>
+          </button>
+        </div>
+        <div id="favoritesPorts" class="favorites-grid">
+          <!-- Les ports favoris seront injectés ici dynamiquement -->
+        </div>
+        <div id="emptyFavorites" class="empty-state" style="display: none">
+          <svg width="64" height="64" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round" opacity="0.3"/>
+          </svg>
+          <h3>Aucun favori</h3>
+          <p>Ajoutez vos ports favoris pour les retrouver facilement</p>
+        </div>
+      </div>
     </main>
 
     <!-- Toast de notifications -->
@@ -319,6 +364,75 @@
           </button>
           <button id="confirmKillBtn" class="btn btn-danger">
             Terminer le processus
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal d'ajout de favori -->
+    <div id="addFavoriteModal" class="modal" style="display: none">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>Ajouter un favori</h3>
+          <button class="modal-close" onclick="closeAddFavoriteModal()">
+            <svg
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M18 6L6 18M6 6L18 18"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+              />
+            </svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <p>Ajoutez un port à vos favoris pour le retrouver facilement.</p>
+          <form id="addFavoriteForm" class="favorite-form">
+            <div class="form-group">
+              <label for="favoritePort">Port *</label>
+              <input
+                type="number"
+                id="favoritePort"
+                class="form-input"
+                placeholder="Ex: 3000"
+                min="1"
+                max="65535"
+                required
+              />
+            </div>
+            <div class="form-group">
+              <label for="favoriteName">Nom *</label>
+              <input
+                type="text"
+                id="favoriteName"
+                class="form-input"
+                placeholder="Ex: Node.js Dev"
+                required
+              />
+            </div>
+            <div class="form-group">
+              <label for="favoriteDescription">Description</label>
+              <input
+                type="text"
+                id="favoriteDescription"
+                class="form-input"
+                placeholder="Ex: Serveur de développement"
+              />
+            </div>
+          </form>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" onclick="closeAddFavoriteModal()">
+            Annuler
+          </button>
+          <button id="saveFavoriteBtn" class="btn btn-primary">
+            Ajouter
           </button>
         </div>
       </div>
