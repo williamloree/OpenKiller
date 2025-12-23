@@ -1,6 +1,6 @@
 {
   "name": "open-killer",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Application Electron moderne pour gérer les ports ouverts sur votre système",
   "main": "src/main/main.js",
   "scripts": {
