@@ -1,0 +1,26 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="512" height="512" rx="80" fill="#6366f1"/>
+  
+  <!-- Network Icon -->
+  <circle cx="256" cy="256" r="140" fill="none" stroke="white" stroke-width="24"/>
+  <circle cx="256" cy="256" r="32" fill="white"/>
+  
+  <!-- Connection Points -->
+  <line x1="256" y1="116" x2="256" y2="164" stroke="white" stroke-width="20" stroke-linecap="round"/>
+  <line x1="256" y1="348" x2="256" y2="396" stroke="white" stroke-width="20" stroke-linecap="round"/>
+  <line x1="116" y1="256" x2="164" y2="256" stroke="white" stroke-width="20" stroke-linecap="round"/>
+  <line x1="348" y1="256" x2="396" y2="256" stroke="white" stroke-width="20" stroke-linecap="round"/>
+  
+  <!-- Diagonal lines -->
+  <line x1="173" y1="173" x2="203" y2="203" stroke="white" stroke-width="20" stroke-linecap="round"/>
+  <line x1="309" y1="309" x2="339" y2="339" stroke="white" stroke-width="20" stroke-linecap="round"/>
+  <line x1="339" y1="173" x2="309" y2="203" stroke="white" stroke-width="20" stroke-linecap="round"/>
+  <line x1="203" y1="309" x2="173" y2="339" stroke="white" stroke-width="20" stroke-linecap="round"/>
+  
+  <!-- Corner dots -->
+  <circle cx="256" cy="100" r="16" fill="white"/>
+  <circle cx="256" cy="412" r="16" fill="white"/>
+  <circle cx="100" cy="256" r="16" fill="white"/>
+  <circle cx="412" cy="256" r="16" fill="white"/>
+</svg>

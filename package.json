@@ -1,0 +1,39 @@
+{
+  "name": "open-killer",
+  "version": "1.0.0",
+  "description": "Application Electron moderne pour gérer les ports ouverts sur votre système",
+  "main": "src/main/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "build": "electron-builder"
+  },
+  "keywords": [
+    "electron",
+    "open-killer",
+    "network",
+    "open-source"
+  ],
+  "author": "William",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-builder": "^24.9.1"
+  },
+  "dependencies": {
+    "node-netstat": "^1.8.0"
+  },
+  "build": {
+    "appId": "com.openkiller.app",
+    "productName": "Open Killer",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "package.json",
+      "!dist/**/*"
+    ]
+  }
+}
