@@ -11,10 +11,29 @@ let sortDirection = "asc";
 let currentKillPid = null;
 let currentKillPort = null;
 let currentKillProcess = null;
+let currentKillMode = "single"; // "single" ou "bulk"
 let currentPage = "ports"; // "ports" ou "favorites"
+let selectedPids = new Set();
 
 // Ports favoris - chargés depuis localStorage
 let favoritePorts = [];
+let editingFavoritePort = null;
+
+// Bibliothèque de ports courants pour l'ajout rapide en favoris
+const PORT_PRESETS = [
+  { port: 3000, name: "Nuxt / Node dev" },
+  { port: 5173, name: "Vite dev" },
+  { port: 4200, name: "Angular dev" },
+  { port: 8000, name: "Django dev" },
+  { port: 5000, name: "Flask dev" },
+  { port: 80, name: "Caddy / HTTP" },
+  { port: 443, name: "Caddy / HTTPS" },
+  { port: 8080, name: "HTTP alternatif" },
+  { port: 5432, name: "PostgreSQL" },
+  { port: 3306, name: "MySQL" },
+  { port: 6379, name: "Redis" },
+  { port: 27017, name: "MongoDB" },
+];
 
 // === Initialisation ===
 document.addEventListener("DOMContentLoaded", () => {
@@ -69,6 +88,39 @@ function setupEventListeners() {
   const searchInput = document.getElementById("searchInput");
   searchInput.addEventListener("input", handleSearch);
 
+  // Filtre par protocole
+  const protocolFilter = document.getElementById("protocolFilter");
+  protocolFilter.addEventListener("change", handleSearch);
+
+  // Export CSV / JSON
+  document.getElementById("exportCsvBtn").addEventListener("click", () => exportPorts("csv"));
+  document.getElementById("exportJsonBtn").addEventListener("click", () => exportPorts("json"));
+
+  // Sélection multiple
+  const selectAllCheckbox = document.getElementById("selectAllCheckbox");
+  selectAllCheckbox.addEventListener("change", () => {
+    const checked = selectAllCheckbox.checked;
+    filteredPorts.forEach((port) => {
+      const key = String(port.pid);
+      if (checked) {
+        selectedPids.add(key);
+      } else {
+        selectedPids.delete(key);
+      }
+    });
+    renderTable();
+  });
+
+  document.getElementById("bulkClearBtn").addEventListener("click", () => {
+    selectedPids.clear();
+    renderTable();
+  });
+
+  document.getElementById("bulkKillBtn").addEventListener("click", () => {
+    if (selectedPids.size === 0) return;
+    showBulkKillModal();
+  });
+
   // Bouton d'effacement de recherche
   const clearSearch = document.getElementById("clearSearch");
   clearSearch.addEventListener("click", () => {
@@ -89,6 +141,12 @@ function setupEventListeners() {
   // Bouton de confirmation du modal
   const confirmKillBtn = document.getElementById("confirmKillBtn");
   confirmKillBtn.addEventListener("click", confirmKillProcess);
+
+  // Fermeture des modals (croix et annuler)
+  document.getElementById("confirmModalCloseBtn").addEventListener("click", closeModal);
+  document.getElementById("confirmModalCancelBtn").addEventListener("click", closeModal);
+  document.getElementById("addFavoriteModalCloseBtn").addEventListener("click", closeAddFavoriteModal);
+  document.getElementById("addFavoriteModalCancelBtn").addEventListener("click", closeAddFavoriteModal);
 
   // Bouton d'ajout de favori
   const addFavoriteBtn = document.getElementById("addFavoriteBtn");
@@ -138,6 +196,12 @@ async function loadPorts() {
     // Récupérer les ports via l'API Electron
     allPorts = await window.electronAPI.getPorts();
 
+    // Retirer de la sélection les PID qui ne sont plus présents
+    const currentPids = new Set(allPorts.map((p) => String(p.pid)));
+    selectedPids.forEach((pid) => {
+      if (!currentPids.has(pid)) selectedPids.delete(pid);
+    });
+
     // Appliquer le filtre de recherche actuel
     const searchTerm = document.getElementById("searchInput").value;
     filterPorts(searchTerm);
@@ -174,14 +238,16 @@ async function loadPorts() {
  */
 function filterPorts(searchTerm) {
   const term = searchTerm.toLowerCase().trim();
-
-  if (!term) {
-    filteredPorts = [...allPorts];
-    updateFilterStatus("");
-    return;
-  }
+  const protocolValue = document.getElementById("protocolFilter").value;
 
   filteredPorts = allPorts.filter((port) => {
+    const matchesProtocol =
+      protocolValue === "all" ||
+      String(port.protocol || "").toLowerCase().includes(protocolValue);
+
+    if (!matchesProtocol) return false;
+    if (!term) return true;
+
     const portStr = String(port.port).toLowerCase();
     const processStr = (port.processName || "").toLowerCase();
     const addressStr = (port.address || "").toLowerCase();
@@ -193,11 +259,15 @@ function filterPorts(searchTerm) {
     );
   });
 
-  updateFilterStatus(
-    `${filteredPorts.length} résultat${
-      filteredPorts.length > 1 ? "s" : ""
-    } pour "${searchTerm}"`
-  );
+  if (term) {
+    updateFilterStatus(
+      `${filteredPorts.length} résultat${
+        filteredPorts.length > 1 ? "s" : ""
+      } pour "${searchTerm}"`
+    );
+  } else {
+    updateFilterStatus("");
+  }
 }
 
 /**
@@ -294,6 +364,9 @@ function renderTable() {
   portCount.textContent = `${filteredPorts.length} port${
     filteredPorts.length > 1 ? "s" : ""
   }`;
+
+  updateBulkActionBar();
+  updateSelectAllCheckboxState();
 }
 
 /**
@@ -305,10 +378,26 @@ function createTableRow(port) {
   const tr = document.createElement("tr");
   tr.setAttribute("data-port", port.port);
 
+  // Colonne Sélection
+  const checkboxCell = document.createElement("td");
+  checkboxCell.className = "col-checkbox";
+  const checkbox = document.createElement("input");
+  checkbox.type = "checkbox";
+  checkbox.className = "row-checkbox";
+  checkbox.checked = selectedPids.has(String(port.pid));
+  checkbox.addEventListener("change", () => {
+    togglePidSelection(port.pid, checkbox.checked);
+  });
+  checkboxCell.appendChild(checkbox);
+  tr.appendChild(checkboxCell);
+
   // Colonne Port
   const portCell = document.createElement("td");
   portCell.className = "col-port";
-  portCell.innerHTML = `<span class="port-number">${port.port}</span>`;
+  const protocolDotClass = String(port.protocol || "").toLowerCase().includes("udp")
+    ? "dot-udp"
+    : "dot-tcp";
+  portCell.innerHTML = `<span class="port-dot ${protocolDotClass}"></span><span class="port-number">${port.port}</span>`;
   tr.appendChild(portCell);
 
   // Colonne Protocole
@@ -327,8 +416,9 @@ function createTableRow(port) {
   const processCell = document.createElement("td");
   processCell.className = "col-process";
   const processInitial = (port.processName || "U").charAt(0).toUpperCase();
+  const exePathTitle = port.exePath && port.exePath !== "N/A" ? port.exePath : "Chemin inconnu";
   processCell.innerHTML = `
-    <div class="process-name">
+    <div class="process-name" title="${exePathTitle.replace(/"/g, "&quot;")}">
       <span class="process-icon">${processInitial}</span>
       <span>${port.processName || "Inconnu"}</span>
     </div>
@@ -341,6 +431,12 @@ function createTableRow(port) {
   pidCell.innerHTML = `<span class="pid-cell">${port.pid}</span>`;
   tr.appendChild(pidCell);
 
+  // Colonne RAM
+  const ramCell = document.createElement("td");
+  ramCell.className = "col-ram";
+  ramCell.innerHTML = `<span class="ram-cell">${formatMemory(port.memoryMB)}</span>`;
+  tr.appendChild(ramCell);
+
   // Colonne Actions
   const actionsCell = document.createElement("td");
   actionsCell.className = "col-actions actions-cell";
@@ -348,14 +444,18 @@ function createTableRow(port) {
   const killBtn = document.createElement("button");
   killBtn.className = "btn btn-danger btn-small";
   killBtn.innerHTML = `
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M18 6L6 18M6 6L18 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M12 2v8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+      <path d="M6.5 6.5a8 8 0 1 0 11 0" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
     </svg>
     Kill
   `;
   killBtn.addEventListener("click", () => showKillModal(port));
 
-  actionsCell.appendChild(killBtn);
+  const actionsInner = document.createElement("div");
+  actionsInner.className = "actions-cell-inner";
+  actionsInner.appendChild(killBtn);
+  actionsCell.appendChild(actionsInner);
   tr.appendChild(actionsCell);
 
   return tr;
@@ -366,13 +466,32 @@ function createTableRow(port) {
  * @param {Object} port - Données du port
  */
 function showKillModal(port) {
+  currentKillMode = "single";
   currentKillPid = port.pid;
   currentKillPort = port.port;
   currentKillProcess = port.processName || "Inconnu";
 
+  document.getElementById("modalMessage").textContent =
+    "Êtes-vous sûr de vouloir terminer ce processus ?";
   document.getElementById("modalPort").textContent = port.port;
   document.getElementById("modalPid").textContent = port.pid;
   document.getElementById("modalProcess").textContent = currentKillProcess;
+
+  const modal = document.getElementById("confirmModal");
+  modal.style.display = "flex";
+}
+
+/**
+ * Affiche le modal de confirmation pour la terminaison groupée
+ */
+function showBulkKillModal() {
+  currentKillMode = "bulk";
+
+  document.getElementById("modalMessage").textContent =
+    `Êtes-vous sûr de vouloir terminer ${selectedPids.size} processus ?`;
+  document.getElementById("modalPort").textContent = "-";
+  document.getElementById("modalPid").textContent = Array.from(selectedPids).join(", ");
+  document.getElementById("modalProcess").textContent = `${selectedPids.size} processus sélectionnés`;
 
   const modal = document.getElementById("confirmModal");
   modal.style.display = "flex";
@@ -384,15 +503,21 @@ function showKillModal(port) {
 function closeModal() {
   const modal = document.getElementById("confirmModal");
   modal.style.display = "none";
+  currentKillMode = "single";
   currentKillPid = null;
   currentKillPort = null;
   currentKillProcess = null;
 }
 
 /**
- * Confirme et exécute la terminaison du processus
+ * Confirme et exécute la terminaison du processus (simple ou groupée)
  */
 async function confirmKillProcess() {
+  if (currentKillMode === "bulk") {
+    await executeBulkKill();
+    return;
+  }
+
   if (!currentKillPid) return;
 
   const confirmBtn = document.getElementById("confirmKillBtn");
@@ -422,6 +547,140 @@ async function confirmKillProcess() {
     confirmBtn.innerHTML = "Terminer le processus";
     closeModal();
   }
+}
+
+/**
+ * Termine tous les processus sélectionnés
+ */
+async function executeBulkKill() {
+  const pids = Array.from(selectedPids);
+  const confirmBtn = document.getElementById("confirmKillBtn");
+  confirmBtn.disabled = true;
+  confirmBtn.innerHTML =
+    '<span class="spinner" style="width: 16px; height: 16px; border-width: 2px;"></span> Terminaison...';
+
+  try {
+    const results = await window.electronAPI.killProcesses(pids);
+    const successCount = results.filter((r) => r.success).length;
+    const failCount = results.length - successCount;
+
+    if (successCount > 0) {
+      showToast(
+        `${successCount} processus terminé${successCount > 1 ? "s" : ""} avec succès`,
+        "success"
+      );
+    }
+    if (failCount > 0) {
+      showToast(
+        `${failCount} processus n'ont pas pu être terminés`,
+        "error"
+      );
+    }
+
+    selectedPids.clear();
+    setTimeout(loadPorts, 1000);
+  } catch (error) {
+    console.error("Erreur lors de la terminaison groupée:", error);
+    showToast("Erreur lors de la terminaison des processus", "error");
+  } finally {
+    confirmBtn.disabled = false;
+    confirmBtn.innerHTML = "Terminer le processus";
+    closeModal();
+  }
+}
+
+/**
+ * Ajoute ou retire un PID de la sélection courante
+ */
+function togglePidSelection(pid, checked) {
+  const key = String(pid);
+  if (checked) {
+    selectedPids.add(key);
+  } else {
+    selectedPids.delete(key);
+  }
+  updateBulkActionBar();
+  updateSelectAllCheckboxState();
+}
+
+/**
+ * Affiche/masque la barre d'actions groupées selon la sélection
+ */
+function updateBulkActionBar() {
+  const bar = document.getElementById("bulkActionBar");
+  const count = document.getElementById("bulkSelectionCount");
+
+  if (selectedPids.size > 0) {
+    bar.style.display = "flex";
+    count.textContent = `${selectedPids.size} sélectionné${selectedPids.size > 1 ? "s" : ""}`;
+  } else {
+    bar.style.display = "none";
+  }
+}
+
+/**
+ * Met à jour l'état (coché/indéterminé) de la case "tout sélectionner"
+ */
+function updateSelectAllCheckboxState() {
+  const selectAll = document.getElementById("selectAllCheckbox");
+  if (!selectAll) return;
+
+  const visiblePids = filteredPorts.map((p) => String(p.pid));
+  const selectedVisible = visiblePids.filter((pid) => selectedPids.has(pid));
+
+  selectAll.checked = visiblePids.length > 0 && selectedVisible.length === visiblePids.length;
+  selectAll.indeterminate = selectedVisible.length > 0 && selectedVisible.length < visiblePids.length;
+}
+
+/**
+ * Formate une valeur de mémoire en Mo pour l'affichage
+ */
+function formatMemory(memoryMB) {
+  return memoryMB === null || memoryMB === undefined ? "N/A" : `${memoryMB} Mo`;
+}
+
+/**
+ * Exporte les ports affichés au format CSV ou JSON
+ */
+function exportPorts(format) {
+  if (filteredPorts.length === 0) {
+    showToast("Aucune donnée à exporter", "error");
+    return;
+  }
+
+  let content, mimeType, filename;
+
+  if (format === "json") {
+    content = JSON.stringify(filteredPorts, null, 2);
+    mimeType = "application/json";
+    filename = `open-killer-ports-${Date.now()}.json`;
+  } else {
+    const headers = ["Port", "Protocole", "Adresse", "Application", "PID", "RAM (Mo)", "Chemin"];
+    const rows = filteredPorts.map((p) => [
+      p.port,
+      p.protocol,
+      p.address,
+      p.processName,
+      p.pid,
+      p.memoryMB ?? "",
+      p.exePath ?? "",
+    ]);
+    content = [headers, ...rows]
+      .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","))
+      .join("\n");
+    mimeType = "text/csv";
+    filename = `open-killer-ports-${Date.now()}.csv`;
+  }
+
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+
+  showToast(`Export ${format.toUpperCase()} réussi`, "success");
 }
 
 /**
@@ -486,10 +745,71 @@ function showPage(pageName) {
  * Affiche le modal d'ajout de favori
  */
 function showAddFavoriteModal() {
+  editingFavoritePort = null;
+  document.getElementById("addFavoriteModalTitle").textContent = "Ajouter un favori";
+  document.getElementById("saveFavoriteBtn").textContent = "Ajouter";
   document.getElementById("favoritePort").value = "";
   document.getElementById("favoriteName").value = "";
   document.getElementById("favoriteDescription").value = "";
+  renderPresetChips();
   document.getElementById("addFavoriteModal").style.display = "flex";
+}
+
+/**
+ * Affiche le modal en mode édition, préempli avec le favori existant
+ * @param {Object} favorite - Favori à modifier
+ */
+function showEditFavoriteModal(favorite) {
+  editingFavoritePort = favorite.port;
+  document.getElementById("addFavoriteModalTitle").textContent = "Modifier le favori";
+  document.getElementById("saveFavoriteBtn").textContent = "Enregistrer";
+  document.getElementById("favoritePort").value = favorite.port;
+  document.getElementById("favoriteName").value = favorite.name;
+  document.getElementById("favoriteDescription").value = favorite.description || "";
+  document.getElementById("presetLibrary").style.display = "none";
+  document.getElementById("presetDivider").style.display = "none";
+  document.getElementById("addFavoriteModal").style.display = "flex";
+}
+
+/**
+ * Affiche la bibliothèque de ports courants dans le modal d'ajout
+ */
+function renderPresetChips() {
+  const container = document.getElementById("presetChips");
+  const library = document.getElementById("presetLibrary");
+  const divider = document.getElementById("presetDivider");
+  container.innerHTML = "";
+
+  const availablePresets = PORT_PRESETS.filter(
+    (preset) => !favoritePorts.some((f) => f.port === preset.port)
+  );
+
+  if (availablePresets.length === 0) {
+    library.style.display = "none";
+    divider.style.display = "none";
+    return;
+  }
+
+  library.style.display = "block";
+  divider.style.display = "flex";
+
+  availablePresets.forEach((preset) => {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "preset-chip";
+    chip.innerHTML = `
+      <span class="preset-chip-port">${preset.port}</span>
+      <span class="preset-chip-name">${preset.name}</span>
+    `;
+
+    chip.addEventListener("click", () => {
+      if (addFavoriteEntry(preset.port, preset.name, "")) {
+        renderPresetChips();
+      }
+    });
+
+    container.appendChild(chip);
+  });
 }
 
 /**
@@ -497,39 +817,87 @@ function showAddFavoriteModal() {
  */
 function closeAddFavoriteModal() {
   document.getElementById("addFavoriteModal").style.display = "none";
+  editingFavoritePort = null;
 }
 
 /**
- * Sauvegarde un nouveau favori
+ * Valide et ajoute un favori (utilisé par le formulaire et la bibliothèque de presets)
+ * @returns {boolean} true si le favori a été ajouté
+ */
+function addFavoriteEntry(port, name, description) {
+  if (!port || port < 1 || port > 65535) {
+    showToast("Port invalide. Doit être entre 1 et 65535", "error");
+    return false;
+  }
+
+  if (!name) {
+    showToast("Le nom est requis", "error");
+    return false;
+  }
+
+  // Vérifier si le port existe déjà
+  if (favoritePorts.some((f) => f.port === port)) {
+    showToast("Ce port est déjà dans vos favoris", "error");
+    return false;
+  }
+
+  favoritePorts.push({ port, name, description: description || "" });
+  saveFavoritesToStorage();
+  renderFavorites();
+  updateTabBadges();
+  showToast(`Port ${port} ajouté aux favoris`, "success");
+  return true;
+}
+
+/**
+ * Valide et applique la modification d'un favori existant
+ * @returns {boolean} true si le favori a été mis à jour
+ */
+function updateFavoriteEntry(originalPort, newPort, name, description) {
+  if (!newPort || newPort < 1 || newPort > 65535) {
+    showToast("Port invalide. Doit être entre 1 et 65535", "error");
+    return false;
+  }
+
+  if (!name) {
+    showToast("Le nom est requis", "error");
+    return false;
+  }
+
+  if (newPort !== originalPort && favoritePorts.some((f) => f.port === newPort)) {
+    showToast("Ce port est déjà dans vos favoris", "error");
+    return false;
+  }
+
+  const favorite = favoritePorts.find((f) => f.port === originalPort);
+  if (!favorite) return false;
+
+  favorite.port = newPort;
+  favorite.name = name;
+  favorite.description = description || "";
+  saveFavoritesToStorage();
+  renderFavorites();
+  updateTabBadges();
+  showToast(`Favori port ${newPort} mis à jour`, "success");
+  return true;
+}
+
+/**
+ * Sauvegarde le favori saisi dans le formulaire (ajout ou modification)
  */
 function saveFavorite() {
   const port = parseInt(document.getElementById("favoritePort").value);
   const name = document.getElementById("favoriteName").value.trim();
   const description = document.getElementById("favoriteDescription").value.trim();
 
-  if (!port || port < 1 || port > 65535) {
-    showToast("Port invalide. Doit être entre 1 et 65535", "error");
-    return;
-  }
+  const saved =
+    editingFavoritePort !== null
+      ? updateFavoriteEntry(editingFavoritePort, port, name, description)
+      : addFavoriteEntry(port, name, description);
 
-  if (!name) {
-    showToast("Le nom est requis", "error");
-    return;
+  if (saved) {
+    closeAddFavoriteModal();
   }
-
-  // Vérifier si le port existe déjà
-  if (favoritePorts.some((f) => f.port === port)) {
-    showToast("Ce port est déjà dans vos favoris", "error");
-    return;
-  }
-
-  // Ajouter le favori
-  favoritePorts.push({ port, name, description: description || "" });
-  saveFavoritesToStorage();
-  renderFavorites();
-  updateTabBadges();
-  closeAddFavoriteModal();
-  showToast(`Port ${port} ajouté aux favoris`, "success");
 }
 
 /**
@@ -599,8 +967,9 @@ function createFavoriteCard(favorite) {
     <div class="favorite-actions">
       ${isActive ? `
         <button class="btn btn-danger btn-small kill-btn" data-pid="${activePort?.pid}" data-port="${favorite.port}" data-process="${activePort?.processName || 'Inconnu'}">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M18 6L6 18M6 6L18 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12 2v8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            <path d="M6.5 6.5a8 8 0 1 0 11 0" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
           </svg>
           <span>Kill</span>
         </button>
@@ -611,6 +980,13 @@ function createFavoriteCard(favorite) {
           <path d="M21 21L16.65 16.65" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
         </svg>
         <span>Voir</span>
+      </button>
+      <button class="btn btn-secondary btn-small edit-btn">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M12 20h9" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+        </svg>
+        <span>Modifier</span>
       </button>
       <button class="btn btn-danger btn-small delete-btn">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -641,6 +1017,13 @@ function createFavoriteCard(favorite) {
     const searchInput = document.getElementById("searchInput");
     searchInput.value = String(favorite.port);
     handleSearch();
+  });
+
+  // Bouton pour modifier le favori
+  const editBtn = card.querySelector(".edit-btn");
+  editBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    showEditFavoriteModal(favorite);
   });
 
   // Bouton pour supprimer le favori
@@ -675,6 +1058,11 @@ function updateTabBadges() {
 
   if (favoritesTabBadge) {
     favoritesTabBadge.textContent = favoritePorts.length;
+  }
+
+  const railPortMeter = document.getElementById("railPortMeter");
+  if (railPortMeter) {
+    railPortMeter.textContent = allPorts.length;
   }
 }
 
@@ -752,7 +1140,3 @@ function showToast(message, type = "info") {
     }
   }, 5000);
 }
-
-// Exposer les fonctions nécessaires globalement pour le HTML
-window.closeModal = closeModal;
-window.closeAddFavoriteModal = closeAddFavoriteModal;

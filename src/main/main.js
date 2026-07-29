@@ -64,11 +64,37 @@ async function getOpenPorts() {
     }
 
     const { stdout } = await execPromise(command);
-    return parsePortData(stdout, platform);
+    const ports = parsePortData(stdout, platform);
+
+    await resolveProcessDetails(ports);
+
+    return ports;
   } catch (error) {
     console.error("Erreur lors de la récupération des ports:", error);
     return [];
   }
+}
+
+/**
+ * Enrichit chaque port avec le nom réel (Windows), la mémoire utilisée et le chemin de l'exécutable
+ * @param {Array} ports - Liste des ports à mettre à jour
+ */
+async function resolveProcessDetails(ports) {
+  const platform = process.platform;
+  const pids = [...new Set(ports.map((p) => p.pid))];
+  const details = await Promise.all(pids.map((pid) => getProcessDetails(pid)));
+  const detailByPid = new Map(pids.map((pid, i) => [pid, details[i]]));
+
+  ports.forEach((port) => {
+    const detail = detailByPid.get(port.pid);
+    if (!detail) return;
+
+    if (platform === "win32" && detail.name) {
+      port.processName = detail.name;
+    }
+    port.memoryMB = detail.memoryMB;
+    port.exePath = detail.path;
+  });
 }
 
 /**
@@ -159,6 +185,10 @@ function parsePortData(data, platform) {
  * @param {string|number} pid - ID du processus à terminer
  */
 async function killProcess(pid) {
+  if (!/^\d+$/.test(String(pid))) {
+    return { success: false, message: "PID invalide" };
+  }
+
   const platform = process.platform;
   let command;
 
@@ -181,26 +211,57 @@ async function killProcess(pid) {
 }
 
 /**
- * Récupère le nom du processus pour un PID donné (amélioration)
+ * Récupère nom, mémoire (Mo) et chemin de l'exécutable pour un PID donné
  * @param {string|number} pid - ID du processus
+ * @returns {Promise<{name: string|null, memoryMB: number|null, path: string}>}
  */
-async function getProcessName(pid) {
+async function getProcessDetails(pid) {
+  const empty = { name: null, memoryMB: null, path: "N/A" };
+
+  if (!/^\d+$/.test(String(pid))) {
+    return empty;
+  }
+
   const platform = process.platform;
-  let command;
 
   try {
     if (platform === "win32") {
-      command = `tasklist /FI "PID eq ${pid}" /FO CSV /NH`;
-    } else if (platform === "darwin") {
-      command = `ps -p ${pid} -o comm=`;
-    } else {
-      command = `ps -p ${pid} -o comm=`;
+      const command = `powershell -NoProfile -NonInteractive -Command "Get-Process -Id ${pid} | Select-Object ProcessName,Path,WorkingSet64 | ConvertTo-Json -Compress"`;
+      const { stdout } = await execPromise(command);
+      const data = JSON.parse(stdout);
+
+      return {
+        name: data.ProcessName || null,
+        memoryMB: data.WorkingSet64
+          ? Math.round(data.WorkingSet64 / 1024 / 1024)
+          : null,
+        path: data.Path || "N/A",
+      };
     }
 
-    const { stdout } = await execPromise(command);
-    return stdout.trim().replace(/['"]/g, "").split(",")[0] || "Inconnu";
+    const { stdout } = await execPromise(`ps -p ${pid} -o rss=,args=`);
+    const match = stdout.trim().match(/^(\d+)\s+(.*)$/);
+    if (!match) return empty;
+
+    const [, rss, args] = match;
+    let processPath = args.split(" ")[0] || "N/A";
+
+    if (platform === "linux") {
+      try {
+        const { stdout: exe } = await execPromise(`readlink -f /proc/${pid}/exe`);
+        if (exe.trim()) processPath = exe.trim();
+      } catch (error) {
+        // Garder le chemin déduit de la commande si /proc indisponible
+      }
+    }
+
+    return {
+      name: null,
+      memoryMB: Math.round(parseInt(rss, 10) / 1024),
+      path: processPath,
+    };
   } catch (error) {
-    return "Inconnu";
+    return empty;
   }
 }
 
@@ -213,8 +274,11 @@ ipcMain.handle("kill-process", async (event, pid) => {
   return await killProcess(pid);
 });
 
-ipcMain.handle("get-process-name", async (event, pid) => {
-  return await getProcessName(pid);
+ipcMain.handle("kill-processes", async (event, pids) => {
+  if (!Array.isArray(pids)) return [];
+
+  const results = await Promise.all(pids.map((pid) => killProcess(pid)));
+  return results.map((result, i) => ({ pid: pids[i], ...result }));
 });
 
 // Événements de cycle de vie de l'application

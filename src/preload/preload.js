@@ -24,11 +24,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   killProcess: (pid) => ipcRenderer.invoke('kill-process', pid),
 
   /**
-   * Récupère le nom d'un processus par son PID
-   * @param {string|number} pid - ID du processus
-   * @returns {Promise<string>} Nom du processus
+   * Termine plusieurs processus par leurs PID
+   * @param {Array<string|number>} pids - IDs des processus à terminer
+   * @returns {Promise<Array<Object>>} Résultats de l'opération par PID
    */
-  getProcessName: (pid) => ipcRenderer.invoke('get-process-name', pid),
+  killProcesses: (pids) => ipcRenderer.invoke('kill-processes', pids),
 
   /**
    * Informations sur le système
