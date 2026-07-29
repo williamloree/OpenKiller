@@ -31,6 +31,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
   killProcesses: (pids) => ipcRenderer.invoke('kill-processes', pids),
 
   /**
+   * Libère la RAM inutilisée par les applications
+   * @returns {Promise<Object>} Résultat de l'opération
+   */
+  cleanRam: () => ipcRenderer.invoke('clean-ram'),
+
+  /**
+   * Récupère l'état de la RAM système (total, utilisée, libérable)
+   * @returns {Promise<Object>} Informations mémoire en Go
+   */
+  getMemoryInfo: () => ipcRenderer.invoke('get-memory-info'),
+
+  /**
    * Informations sur le système
    */
   platform: process.platform

@@ -69,6 +69,25 @@
           </svg>
           <span>Actualiser</span>
         </button>
+
+        <div class="rail-ram-card">
+          <div class="ram-card-header">
+            <span class="meter-label">RAM</span>
+            <span id="ramMeterUsedLabel" class="ram-card-value">- / - Go</span>
+          </div>
+          <div class="ram-meter-track">
+            <div id="ramMeterUsedFill" class="ram-meter-used" style="width: 0%"></div>
+            <div id="ramMeterFreeableFill" class="ram-meter-freeable" style="width: 0%; left: 0%"></div>
+          </div>
+          <div id="ramMeterFreeableLabel" class="ram-card-caption">Libérable: - Go</div>
+          <button id="cleanRamBtn" class="ram-card-btn" title="Libérer la RAM inutilisée par les applications">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M3 12L5 6h14l2 6M3 12v6a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1v-6M3 12h18" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+              <path d="M8 16v.01M12 16v.01M16 16v.01" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+            </svg>
+            <span>Vider la RAM</span>
+          </button>
+        </div>
       </aside>
 
       <div class="app-main">
@@ -203,6 +222,44 @@
             </div>
           </div>
         </main>
+      </div>
+    </div>
+
+    <!-- Modal de confirmation du nettoyage RAM -->
+    <div id="cleanRamModal" class="modal" style="display: none">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>Vider la RAM</h3>
+          <button id="cleanRamModalCloseBtn" class="modal-close">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M18 6L6 18M6 6L18 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+            </svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <p>
+            Libère la mémoire inutilisée par les applications en cours (sans fermer de processus).
+            Une confirmation Windows (UAC) peut être demandée.
+          </p>
+          <div class="modal-details">
+            <div class="detail-item">
+              <span class="detail-label">RAM totale:</span>
+              <span id="cleanModalTotal" class="detail-value">-</span>
+            </div>
+            <div class="detail-item">
+              <span class="detail-label">RAM utilisée:</span>
+              <span id="cleanModalUsed" class="detail-value">-</span>
+            </div>
+            <div class="detail-item">
+              <span class="detail-label">RAM libérable estimée:</span>
+              <span id="cleanModalFreeable" class="detail-value">-</span>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="cleanRamModalCancelBtn" class="btn btn-secondary">Annuler</button>
+          <button id="confirmCleanRamBtn" class="btn btn-primary">Vider la RAM</button>
+        </div>
       </div>
     </div>
 

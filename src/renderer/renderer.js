@@ -19,6 +19,9 @@ let selectedPids = new Set();
 let favoritePorts = [];
 let editingFavoritePort = null;
 
+// Dernier relevé de l'état de la RAM système
+let lastMemoryInfo = null;
+
 // Bibliothèque de ports courants pour l'ajout rapide en favoris
 const PORT_PRESETS = [
   { port: 3000, name: "Nuxt / Node dev" },
@@ -51,6 +54,9 @@ function initializeApp() {
   // Charger les ports au démarrage
   loadPorts();
 
+  // Charger l'état de la RAM au démarrage
+  loadMemoryInfo();
+
   // Configurer les écouteurs d'événements
   setupEventListeners();
 
@@ -61,7 +67,10 @@ function initializeApp() {
   updateTabBadges();
 
   // Actualiser automatiquement toutes les 10 secondes
-  setInterval(loadPorts, 10000);
+  setInterval(() => {
+    loadPorts();
+    loadMemoryInfo();
+  }, 10000);
 }
 
 /**
@@ -82,6 +91,24 @@ function setupEventListeners() {
   refreshBtn.addEventListener("click", () => {
     loadPorts();
     showToast("Actualisation en cours...", "info");
+  });
+
+  // Bouton de nettoyage RAM (ouvre la modale de confirmation)
+  const cleanRamBtn = document.getElementById("cleanRamBtn");
+  cleanRamBtn.addEventListener("click", showCleanRamModal);
+
+  document.getElementById("cleanRamModalCloseBtn").addEventListener("click", closeCleanRamModal);
+  document.getElementById("cleanRamModalCancelBtn").addEventListener("click", closeCleanRamModal);
+  document.getElementById("confirmCleanRamBtn").addEventListener("click", () => {
+    closeCleanRamModal();
+    performCleanRam();
+  });
+
+  const cleanRamModal = document.getElementById("cleanRamModal");
+  cleanRamModal.addEventListener("click", (e) => {
+    if (e.target === cleanRamModal) {
+      closeCleanRamModal();
+    }
   });
 
   // Champ de recherche
@@ -161,6 +188,7 @@ function setupEventListeners() {
     if (e.key === "Escape") {
       closeModal();
       closeAddFavoriteModal();
+      closeCleanRamModal();
     }
   });
 
@@ -630,6 +658,101 @@ function updateSelectAllCheckboxState() {
 
   selectAll.checked = visiblePids.length > 0 && selectedVisible.length === visiblePids.length;
   selectAll.indeterminate = selectedVisible.length > 0 && selectedVisible.length < visiblePids.length;
+}
+
+/**
+ * Formate une valeur de mémoire en Go pour l'affichage
+ */
+function formatGB(valueGB) {
+  return `${(valueGB || 0).toFixed(1)} Go`;
+}
+
+/**
+ * Charge l'état de la RAM système et met à jour la jauge
+ */
+async function loadMemoryInfo() {
+  try {
+    lastMemoryInfo = await window.electronAPI.getMemoryInfo();
+    renderMemoryMeter(lastMemoryInfo);
+  } catch (error) {
+    console.error("Erreur lors de la récupération de l'état de la RAM:", error);
+  }
+}
+
+/**
+ * Met à jour la jauge de RAM (total / utilisée / libérable)
+ */
+function renderMemoryMeter(info) {
+  const usedFill = document.getElementById("ramMeterUsedFill");
+  const freeableFill = document.getElementById("ramMeterFreeableFill");
+  const usedLabel = document.getElementById("ramMeterUsedLabel");
+  const freeableLabel = document.getElementById("ramMeterFreeableLabel");
+
+  if (!info || !info.totalGB) {
+    usedLabel.textContent = "RAM indisponible";
+    freeableLabel.textContent = "";
+    usedFill.style.width = "0%";
+    freeableFill.style.width = "0%";
+    return;
+  }
+
+  const usedPct = Math.min(100, (info.usedGB / info.totalGB) * 100);
+  const freeablePct = Math.min(usedPct, (info.freeableGB / info.totalGB) * 100);
+  const freeableLeft = Math.max(0, usedPct - freeablePct);
+
+  usedFill.style.width = `${usedPct}%`;
+  freeableFill.style.width = `${freeablePct}%`;
+  freeableFill.style.left = `${freeableLeft}%`;
+
+  usedLabel.textContent = `${formatGB(info.usedGB)} / ${formatGB(info.totalGB)}`;
+  freeableLabel.textContent = `Libérable: ${formatGB(info.freeableGB)}`;
+}
+
+/**
+ * Affiche la modale de confirmation du nettoyage RAM, préremplie avec le dernier relevé
+ */
+function showCleanRamModal() {
+  const info = lastMemoryInfo || { totalGB: 0, usedGB: 0, freeableGB: 0 };
+
+  document.getElementById("cleanModalTotal").textContent = formatGB(info.totalGB);
+  document.getElementById("cleanModalUsed").textContent = formatGB(info.usedGB);
+  document.getElementById("cleanModalFreeable").textContent = `~${formatGB(info.freeableGB)}`;
+  document.getElementById("confirmCleanRamBtn").textContent = `Vider ~${formatGB(info.freeableGB)}`;
+
+  document.getElementById("cleanRamModal").style.display = "flex";
+}
+
+/**
+ * Ferme la modale de confirmation du nettoyage RAM
+ */
+function closeCleanRamModal() {
+  document.getElementById("cleanRamModal").style.display = "none";
+}
+
+/**
+ * Libère la RAM inutilisée par les applications (peut déclencher une demande d'élévation)
+ */
+async function performCleanRam() {
+  const cleanRamBtn = document.getElementById("cleanRamBtn");
+  const originalHtml = cleanRamBtn.innerHTML;
+
+  cleanRamBtn.disabled = true;
+  cleanRamBtn.innerHTML =
+    '<span class="spinner" style="width: 14px; height: 14px; border-width: 2px;"></span><span>Nettoyage...</span>';
+
+  try {
+    const result = await window.electronAPI.cleanRam();
+    showToast(result.message, result.success ? "success" : "error");
+    if (result.success) {
+      await loadMemoryInfo();
+    }
+  } catch (error) {
+    console.error("Erreur lors du nettoyage de la RAM:", error);
+    showToast("Erreur lors du nettoyage de la RAM", "error");
+  } finally {
+    cleanRamBtn.disabled = false;
+    cleanRamBtn.innerHTML = originalHtml;
+  }
 }
 
 /**

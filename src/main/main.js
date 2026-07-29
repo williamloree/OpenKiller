@@ -265,9 +265,159 @@ async function getProcessDetails(pid) {
   }
 }
 
+/**
+ * Récupère l'état de la RAM système : total, utilisée et estimation de RAM
+ * libérable (cache disque / fichiers reclaimable par l'OS)
+ * @returns {Promise<{totalGB: number, usedGB: number, freeableGB: number}>}
+ */
+async function getMemoryInfo() {
+  const empty = { totalGB: 0, usedGB: 0, freeableGB: 0 };
+  const platform = process.platform;
+
+  try {
+    if (platform === "win32") {
+      const command =
+        'powershell -NoProfile -NonInteractive -Command "$os = Get-CimInstance Win32_OperatingSystem; $perf = Get-CimInstance Win32_PerfFormattedData_PerfOS_Memory; [PSCustomObject]@{Total=($os.TotalVisibleMemorySize*1024); Available=$perf.AvailableBytes; Cache=$perf.CacheBytes} | ConvertTo-Json -Compress"';
+      const { stdout } = await execPromise(command);
+      const data = JSON.parse(stdout);
+
+      const totalGB = data.Total / 1073741824;
+      const usedGB = totalGB - data.Available / 1073741824;
+      const freeableGB = Math.min(data.Cache / 1073741824, usedGB);
+
+      return { totalGB, usedGB: Math.max(usedGB, 0), freeableGB: Math.max(freeableGB, 0) };
+    }
+
+    if (platform === "darwin") {
+      const { stdout: memsizeOut } = await execPromise("sysctl -n hw.memsize");
+      const totalBytes = parseInt(memsizeOut.trim(), 10);
+
+      const { stdout: vmStatOut } = await execPromise("vm_stat");
+      const pageSizeMatch = vmStatOut.match(/page size of (\d+) bytes/);
+      const pageSize = pageSizeMatch ? parseInt(pageSizeMatch[1], 10) : 4096;
+
+      const getPages = (label) => {
+        const m = vmStatOut.match(new RegExp(`${label}:\\s+(\\d+)`));
+        return m ? parseInt(m[1], 10) : 0;
+      };
+
+      const freeBytes = getPages("Pages free") * pageSize;
+      const freeableBytes = getPages("Pages inactive") * pageSize;
+
+      const totalGB = totalBytes / 1073741824;
+      const usedGB = totalGB - freeBytes / 1073741824;
+      const freeableGB = freeableBytes / 1073741824;
+
+      return { totalGB, usedGB: Math.max(usedGB, 0), freeableGB: Math.max(freeableGB, 0) };
+    }
+
+    // Linux
+    const { stdout } = await execPromise("cat /proc/meminfo");
+    const getKB = (label) => {
+      const m = stdout.match(new RegExp(`${label}:\\s+(\\d+)`));
+      return m ? parseInt(m[1], 10) * 1024 : 0;
+    };
+
+    const totalBytes = getKB("MemTotal");
+    const availableBytes = getKB("MemAvailable");
+    const freeableBytes = getKB("Cached") + getKB("Buffers");
+
+    const totalGB = totalBytes / 1073741824;
+    const usedGB = totalGB - availableBytes / 1073741824;
+    const freeableGB = freeableBytes / 1073741824;
+
+    return { totalGB, usedGB: Math.max(usedGB, 0), freeableGB: Math.max(freeableGB, 0) };
+  } catch (error) {
+    console.error("Erreur lors de la récupération de l'état de la RAM:", error);
+    return empty;
+  }
+}
+
+/**
+ * Libère la RAM inutilisée par les applications (working set trimming)
+ * Windows: élévation UAC ponctuelle pour vider le working set de tous les processus
+ * macOS: commande `purge` (cache mémoire système)
+ * Linux: vidage du page cache via pkexec (demande d'authentification graphique)
+ */
+async function cleanMemory() {
+  const platform = process.platform;
+
+  try {
+    if (platform === "win32") {
+      return await cleanMemoryWindows();
+    } else if (platform === "darwin") {
+      await execPromise("purge");
+      return { success: true, message: "RAM inutilisée libérée" };
+    } else {
+      await execPromise('pkexec sh -c "sync; echo 3 > /proc/sys/vm/drop_caches"');
+      return { success: true, message: "RAM inutilisée libérée" };
+    }
+  } catch (error) {
+    if (/cancel|denied|dismiss/i.test(error.message)) {
+      return { success: false, message: "Opération annulée" };
+    }
+    return { success: false, message: `Échec: ${error.message}` };
+  }
+}
+
+/**
+ * Vide le working set de tous les processus accessibles via une commande
+ * PowerShell élevée (UAC), pour libérer la mémoire physique qu'ils ne
+ * réutilisent pas immédiatement (API documentée EmptyWorkingSet)
+ */
+async function cleanMemoryWindows() {
+  const innerScript = `
+try {
+  $code = @'
+using System;
+using System.Runtime.InteropServices;
+public class OpenKillerMem {
+    [DllImport("psapi.dll")]
+    public static extern bool EmptyWorkingSet(IntPtr hProcess);
+}
+'@
+  Add-Type -TypeDefinition $code -Language CSharp -ErrorAction Stop
+  Get-Process | ForEach-Object {
+    try { [OpenKillerMem]::EmptyWorkingSet($_.Handle) | Out-Null } catch {}
+  }
+  exit 0
+} catch {
+  exit 1
+}
+`;
+  const innerEncoded = Buffer.from(innerScript, "utf16le").toString("base64");
+
+  const outerScript = `
+try {
+  $p = Start-Process powershell -Verb RunAs -WindowStyle Hidden -Wait -PassThru -ArgumentList '-NoProfile -WindowStyle Hidden -EncodedCommand ${innerEncoded}'
+  exit $p.ExitCode
+} catch {
+  exit 1
+}
+`;
+  const outerEncoded = Buffer.from(outerScript, "utf16le").toString("base64");
+
+  try {
+    await execPromise(
+      `powershell -NoProfile -WindowStyle Hidden -EncodedCommand ${outerEncoded}`
+    );
+    return { success: true, message: "RAM inutilisée libérée" };
+  } catch (error) {
+    return { success: false, message: "Opération annulée ou refusée (élévation requise)" };
+  }
+}
+
 // Gestionnaires d'événements IPC
 ipcMain.handle("get-ports", async () => {
   return await getOpenPorts();
+});
+
+ipcMain.handle("clean-ram", async () => {
+  return await cleanMemory();
+});
+
+ipcMain.handle("get-memory-info", async () => {
+  return await getMemoryInfo();
 });
 
 ipcMain.handle("kill-process", async (event, pid) => {

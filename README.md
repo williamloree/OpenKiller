@@ -12,6 +12,7 @@ Application Electron pour visualiser et gérer les ports ouverts sur votre syst�
 - Terminaison d'un processus (Kill) avec confirmation
 - Sélection multiple pour terminer plusieurs processus en une seule action
 - Export de la liste affichée en CSV ou JSON
+- Vider la RAM inutilisée par les applications (libère de la mémoire sans fermer de processus)
 
 **Favoris**
 - Épingler des ports pour les retrouver rapidement, avec nom et description
