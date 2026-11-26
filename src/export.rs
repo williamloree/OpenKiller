@@ -13,9 +13,9 @@ const HEADERS: [&str; 7] = [
     "Chemin",
 ];
 
-/// Quotes a cell, doubles quotes and neutralises spreadsheet formulas (= + - @).
+/// Quotes a cell, doubles quotes and neutralises spreadsheet formulas (= + - @ tab CR).
 fn cell(s: &str) -> String {
-    let guarded = if s.starts_with(['=', '+', '-', '@']) {
+    let guarded = if s.starts_with(['=', '+', '-', '@', '\t', '\r']) {
         format!("'{s}")
     } else {
         s.to_string()
@@ -95,6 +95,8 @@ mod tests {
         assert_eq!(cell("+1"), "\"'+1\"");
         assert_eq!(cell("-1"), "\"'-1\"");
         assert_eq!(cell("@SUM"), "\"'@SUM\"");
+        assert_eq!(cell("\t=1"), "\"'\t=1\"");
+        assert_eq!(cell("\r=1"), "\"'\r=1\"");
         assert_eq!(cell("C:\\x.exe"), "\"C:\\x.exe\"");
     }
 

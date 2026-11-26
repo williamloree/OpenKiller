@@ -1,0 +1,3 @@
+# Static CRT: no VCRUNTIME140.dll to plant next to the exe (matters for the elevated clean-ram).
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

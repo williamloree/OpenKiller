@@ -9,8 +9,9 @@ use crate::model::{self, Favorite, PortEntry, Proto, ProtoFilter, Sort, SortKey,
 use crate::{config, demo, export, ports, process, updater};
 use dialogs::Target;
 use std::cell::RefCell;
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 use std::path::PathBuf;
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use theme::{Kind, px};
 use windows::Win32::Foundation::*;
@@ -83,9 +84,8 @@ const IDM_CHECK_UPDATE: usize = 0x1020;
 
 const TIMER_REFRESH: usize = 1;
 const TIMER_SHOT: usize = 2;
-const WM_APP_STATUS: u32 = WM_APP + 1;
+const WM_APP_EVENT: u32 = WM_APP + 1;
 const WM_APP_RESTART: u32 = WM_APP + 2;
-const WM_APP_CLEANED: u32 = WM_APP + 3;
 
 const PORT_COLS: [(&str, i32); 7] = [
     ("Port", 90),
@@ -157,16 +157,26 @@ fn app<R>(f: impl FnOnce(&mut App) -> R) -> Option<R> {
     APP.with(|a| a.try_borrow_mut().ok().and_then(|mut a| a.as_mut().map(f)))
 }
 
-fn status(hwnd: HWND, text: String) {
-    // Posted, so it works even from inside a borrow or another thread.
-    unsafe {
-        let _ = PostMessageW(
-            Some(hwnd),
-            WM_APP_STATUS,
-            WPARAM(0),
-            LPARAM(Box::into_raw(Box::new(text)) as isize),
-        );
+/// Results sent by worker threads (or from inside a borrow); WM_APP_EVENT only signals the queue.
+enum Event {
+    Status(String),
+    /// RAM cleaning finished: 0 ok, 1 cancelled, 2 failed (with the error).
+    Cleaned(u8, String),
+}
+
+static EVENTS: Mutex<VecDeque<Event>> = Mutex::new(VecDeque::new());
+
+fn post(hwnd: HWND, e: Event) {
+    if let Ok(mut q) = EVENTS.lock() {
+        q.push_back(e);
     }
+    unsafe {
+        let _ = PostMessageW(Some(hwnd), WM_APP_EVENT, WPARAM(0), LPARAM(0));
+    }
+}
+
+fn status(hwnd: HWND, text: String) {
+    post(hwnd, Event::Status(text));
 }
 
 fn now() -> [u16; 6] {
@@ -1257,14 +1267,7 @@ fn command(hwnd: HWND, id: i32, code: u32) {
                     Err(CleanError::Cancelled) => (1, String::new()),
                     Err(CleanError::Failed(e)) => (2, e),
                 };
-                unsafe {
-                    let _ = PostMessageW(
-                        Some(hwnd),
-                        WM_APP_CLEANED,
-                        WPARAM(code),
-                        LPARAM(Box::into_raw(Box::new(err)) as isize),
-                    );
-                }
+                post(hwnd, Event::Cleaned(code, err));
             });
         }
         _ => {}
@@ -1468,29 +1471,36 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM)
             });
             return LRESULT(0);
         }
-        WM_APP_STATUS => {
-            let text = unsafe { Box::from_raw(lp.0 as *mut String) };
-            app(|a| a.status(*text));
-            return LRESULT(0);
-        }
-        WM_APP_CLEANED => {
-            let err = unsafe { Box::from_raw(lp.0 as *mut String) };
-            app(|a| {
-                let before = a.clean_before.take().unwrap_or(0);
-                unsafe {
-                    let _ = EnableWindow(a.c.clean, true);
+        WM_APP_EVENT => {
+            let events: Vec<Event> = EVENTS
+                .lock()
+                .map(|mut q| q.drain(..).collect())
+                .unwrap_or_default();
+            for e in events {
+                match e {
+                    Event::Status(text) => {
+                        app(|a| a.status(text));
+                    }
+                    Event::Cleaned(code, err) => {
+                        app(|a| {
+                            let before = a.clean_before.take().unwrap_or(0);
+                            unsafe {
+                                let _ = EnableWindow(a.c.clean, true);
+                            }
+                            a.mem = memory::read();
+                            a.invalidate_gauge();
+                            a.status(match code {
+                                0 => format!(
+                                    "RAM libérée : {}",
+                                    fmt_gb(before.saturating_sub(a.mem.used))
+                                ),
+                                1 => "Opération annulée".into(),
+                                _ => format!("Échec du vidage de la RAM ({err})"),
+                            });
+                        });
+                    }
                 }
-                a.mem = memory::read();
-                a.invalidate_gauge();
-                a.status(match wp.0 {
-                    0 => format!(
-                        "RAM libérée : {}",
-                        fmt_gb(before.saturating_sub(a.mem.used))
-                    ),
-                    1 => "Opération annulée".into(),
-                    _ => format!("Échec du vidage de la RAM ({err})"),
-                });
-            });
+            }
             return LRESULT(0);
         }
         WM_APP_RESTART => {

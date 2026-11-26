@@ -90,13 +90,17 @@ pub fn details(pid: u32) -> (Option<u64>, Option<String>) {
         let mem = GetProcessMemoryInfo(h.0, &mut pmc, pmc.cb)
             .ok()
             .map(|_| ((pmc.WorkingSetSize as f64) / 1_048_576.0).round() as u64);
+        (mem, image_path(&h))
+    }
+}
+
+fn image_path(h: &Proc) -> Option<String> {
+    unsafe {
         let mut buf = [0u16; 1024];
         let mut len = buf.len() as u32;
-        let path =
-            QueryFullProcessImageNameW(h.0, PROCESS_NAME_WIN32, PWSTR(buf.as_mut_ptr()), &mut len)
-                .ok()
-                .map(|_| String::from_utf16_lossy(&buf[..len as usize]));
-        (mem, path)
+        QueryFullProcessImageNameW(h.0, PROCESS_NAME_WIN32, PWSTR(buf.as_mut_ptr()), &mut len)
+            .ok()
+            .map(|_| String::from_utf16_lossy(&buf[..len as usize]))
     }
 }
 
@@ -125,9 +129,6 @@ pub fn kill(pid: u32, expected_name: &str) -> Result<(), KillError> {
     if is_protected(pid, std::process::id()) {
         return Err(KillError::Protected);
     }
-    if snapshot_names().get(&pid).map(String::as_str) != Some(expected_name) {
-        return Err(KillError::Changed);
-    }
     let err = |e: windows::core::Error| {
         if e.code() == ERROR_ACCESS_DENIED.to_hresult() {
             KillError::AccessDenied
@@ -136,8 +137,20 @@ pub fn kill(pid: u32, expected_name: &str) -> Result<(), KillError> {
         }
     };
     unsafe {
-        let h =
-            Proc(OpenProcess(PROCESS_TERMINATE | PROCESS_SYNCHRONIZE, false, pid).map_err(err)?);
+        let access = PROCESS_TERMINATE | PROCESS_SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION;
+        let h = Proc(OpenProcess(access, false, pid).map_err(err)?);
+        // Check the name on the handle we kill with, so the PID cannot be reused in between.
+        let name = image_path(&h)
+            .and_then(|p| {
+                std::path::Path::new(&p)
+                    .file_name()
+                    .map(|f| f.to_string_lossy().into_owned())
+            })
+            .map(|f| strip_exe(&f).to_string())
+            .or_else(|| snapshot_names().remove(&pid));
+        if name.as_deref() != Some(expected_name) {
+            return Err(KillError::Changed);
+        }
         TerminateProcess(h.0, 1).map_err(err)?;
         // Let the process die (and its sockets close) before the list is refreshed.
         WaitForSingleObject(h.0, 2000);

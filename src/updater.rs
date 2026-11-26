@@ -41,8 +41,11 @@ impl Drop for Handle {
     }
 }
 
-/// HTTPS GET; redirects (release asset downloads) are followed.
-fn get(url: &str) -> Result<Vec<u8>, String> {
+const MAX_EXE: usize = 50 << 20;
+const MAX_TEXT: usize = 64 << 10;
+
+/// HTTPS GET of at most `max` bytes; redirects (release asset downloads) are followed.
+fn get(url: &str, max: usize) -> Result<Vec<u8>, String> {
     let rest = url.strip_prefix("https://").ok_or("not an HTTPS url")?;
     let (host, path) = match rest.split_once('/') {
         Some((h, p)) => (h, format!("/{p}")),
@@ -106,6 +109,9 @@ fn get(url: &str) -> Result<Vec<u8>, String> {
                 break;
             }
             let start = out.len();
+            if start + avail as usize > max {
+                return Err(format!("response larger than {max} bytes"));
+            }
             out.resize(start + avail as usize, 0);
             let mut read = 0u32;
             WinHttpReadData(r.0, out[start..].as_mut_ptr() as *mut _, avail, &mut read)
@@ -154,9 +160,10 @@ pub enum Outcome {
 
 /// Looks for a newer release and installs it in place of the running exe. Caller restarts.
 pub fn check_and_install(manual: bool) -> Result<Outcome, String> {
-    let body = get(&format!(
-        "https://api.github.com/repos/{REPO}/releases/latest"
-    ))?;
+    let body = get(
+        &format!("https://api.github.com/repos/{REPO}/releases/latest"),
+        MAX_TEXT,
+    )?;
     let rel: Value = serde_json::from_slice(&body).map_err(|e| e.to_string())?;
     let tag = rel
         .get("tag_name")
@@ -182,12 +189,12 @@ pub fn check_and_install(manual: bool) -> Result<Outcome, String> {
     let exe_url = asset(&exe_name).ok_or(format!("{exe_name} missing from release"))?;
     let sha_url = asset(&format!("{exe_name}.sha256"))
         .ok_or(format!("{exe_name}.sha256 missing from release"))?;
-    let expected: String = String::from_utf8_lossy(&get(&sha_url)?)
+    let expected: String = String::from_utf8_lossy(&get(&sha_url, MAX_TEXT)?)
         .chars()
         .take(64)
         .collect::<String>()
         .to_lowercase();
-    let exe = get(&exe_url)?;
+    let exe = get(&exe_url, MAX_EXE)?;
     if sha256_hex(&exe) != expected {
         return Err("SHA-256 mismatch: download rejected".into());
     }
@@ -237,7 +244,7 @@ mod tests {
     #[test]
     #[ignore]
     fn http() {
-        let body = get(&format!("https://api.github.com/repos/{REPO}")).unwrap();
+        let body = get(&format!("https://api.github.com/repos/{REPO}"), MAX_TEXT).unwrap();
         let v: Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(v["full_name"], REPO);
     }

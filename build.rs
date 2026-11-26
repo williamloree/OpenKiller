@@ -11,6 +11,8 @@ fn main() {
         .manifest_optional()
         .unwrap();
     if std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
+        // LOAD_LIBRARY_SEARCH_SYSTEM32 for imported DLLs: never load them from the exe folder.
+        println!("cargo:rustc-link-arg-bins=/DEPENDENTLOADFLAG:0x800");
         println!("cargo:rustc-link-arg-bins=/MANIFEST:EMBED");
         println!(
             "cargo:rustc-link-arg-bins=/MANIFESTINPUT:{}",
