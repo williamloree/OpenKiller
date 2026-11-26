@@ -1,0 +1,79 @@
+# Modèle A.Github pour rust-bureau et cli. Remplacer openkiller par le nom du crate (= nom de l'exe).
+# Compile openkiller sous Windows à chaque push et pull request.
+# Sur main, si la version de Cargo.toml n'a pas encore de release, crée la
+# release vX.Y.Z avec openkiller.exe et son empreinte SHA-256 : les installations
+# existantes la récupèrent d'elles-mêmes (mise à jour automatique).
+name: Build et release
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Format
+        run: cargo fmt --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets --release -- -D warnings
+
+      - name: Tests
+        run: cargo test --release
+
+      - name: Compilation
+        run: cargo build --release
+
+      - name: Contrôle du runtime C (pas de VCRUNTIME140.dll)
+        shell: pwsh
+        run: |
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -property installationPath
+          $dumpbin = Get-ChildItem "$vs\VC\Tools\MSVC" -Recurse -Filter dumpbin.exe | Where-Object FullName -like '*Hostx64\x64*' | Select-Object -First 1
+          $imports = & $dumpbin.FullName /imports target/release/openkiller.exe
+          if ($imports -match 'VCRUNTIME140') { throw 'openkiller.exe importe VCRUNTIME140.dll : le runtime C doit rester statique.' }
+          Write-Host 'OK : aucun import VCRUNTIME140.dll'
+
+      - name: Version et empreinte
+        id: v
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
+          "version=$version" >> $env:GITHUB_OUTPUT
+          Copy-Item target/release/openkiller.exe openkiller.exe
+          $hash = (Get-FileHash openkiller.exe -Algorithm SHA256).Hash.ToLower()
+          [IO.File]::WriteAllText("openkiller.exe.sha256", "$hash  openkiller.exe`n")
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: openkiller-${{ steps.v.outputs.version }}
+          path: |
+            openkiller.exe
+            openkiller.exe.sha256
+
+      - name: Release (nouvelle version seulement)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="v${{ steps.v.outputs.version }}"
+          if gh release view "$tag" > /dev/null 2>&1; then
+            echo "La release $tag existe déjà : rien à publier."
+          else
+            gh release create "$tag" openkiller.exe openkiller.exe.sha256 \
+              --target "$GITHUB_SHA" --title "openkiller $tag" --generate-notes
+          fi
