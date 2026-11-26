@@ -8,8 +8,8 @@ use windows::Win32::System::Diagnostics::ToolHelp::{
 };
 use windows::Win32::System::ProcessStatus::{GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS};
 use windows::Win32::System::Threading::{
-    OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE,
-    QueryFullProcessImageNameW, TerminateProcess,
+    OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE,
+    PROCESS_TERMINATE, QueryFullProcessImageNameW, TerminateProcess, WaitForSingleObject,
 };
 use windows::core::PWSTR;
 
@@ -128,22 +128,20 @@ pub fn kill(pid: u32, expected_name: &str) -> Result<(), KillError> {
     if snapshot_names().get(&pid).map(String::as_str) != Some(expected_name) {
         return Err(KillError::Changed);
     }
+    let err = |e: windows::core::Error| {
+        if e.code() == ERROR_ACCESS_DENIED.to_hresult() {
+            KillError::AccessDenied
+        } else {
+            KillError::Other(e.message())
+        }
+    };
     unsafe {
-        let h = OpenProcess(PROCESS_TERMINATE, false, pid).map_err(|e| {
-            if e.code() == ERROR_ACCESS_DENIED.to_hresult() {
-                KillError::AccessDenied
-            } else {
-                KillError::Other(e.message())
-            }
-        })?;
-        let h = Proc(h);
-        TerminateProcess(h.0, 1).map_err(|e| {
-            if e.code() == ERROR_ACCESS_DENIED.to_hresult() {
-                KillError::AccessDenied
-            } else {
-                KillError::Other(e.message())
-            }
-        })
+        let h =
+            Proc(OpenProcess(PROCESS_TERMINATE | PROCESS_SYNCHRONIZE, false, pid).map_err(err)?);
+        TerminateProcess(h.0, 1).map_err(err)?;
+        // Let the process die (and its sockets close) before the list is refreshed.
+        WaitForSingleObject(h.0, 2000);
+        Ok(())
     }
 }
 
@@ -171,5 +169,44 @@ mod tests {
         assert!(mem.is_some() && path.is_some());
         assert_eq!(kill(me, &names[&me]), Err(KillError::Protected));
         assert_eq!(kill(4, "System"), Err(KillError::Protected));
+    }
+}
+
+/// End-to-end check of MVP #1 and #4 with a real server: cargo test real_server -- --ignored
+#[cfg(test)]
+mod real {
+    #[test]
+    #[ignore]
+    fn real_server_is_listed_then_killed() {
+        let mut child = std::process::Command::new("python")
+            .args(["-m", "http.server", "8123"])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect("python not found");
+        let pid = child.id();
+        let find = || {
+            crate::ports::scan()
+                .into_iter()
+                .find(|p| p.port == 8123 && p.pid == pid)
+        };
+        let mut row = None;
+        for _ in 0..50 {
+            row = find();
+            if row.is_some() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        let row = row.expect("8123 not listed");
+        assert_eq!(row.name, "python");
+        assert!(row.memory_mb.is_some() && row.path.is_some());
+        assert_eq!(
+            super::kill(row.pid, "not-python"),
+            Err(super::KillError::Changed)
+        );
+        super::kill(row.pid, &row.name).unwrap();
+        let _ = child.wait();
+        assert!(find().is_none());
     }
 }

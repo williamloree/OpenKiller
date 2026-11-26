@@ -312,6 +312,27 @@ pub fn ctl_color(msg: u32, wp: WPARAM, lp: LPARAM, bg: COLORREF) -> Option<LRESU
     }
 }
 
+/// WM_ACTIVATE: remembers the focused child on deactivation and restores it on activation
+/// (what the dialog manager does for real dialogs). True when handled.
+pub fn keep_focus(top: HWND, wp: WPARAM) -> bool {
+    use windows::Win32::UI::Input::KeyboardAndMouse::{GetFocus, SetFocus};
+    unsafe {
+        if wp.0 & 0xffff == 0 {
+            let f = GetFocus();
+            if IsChild(top, f).as_bool() {
+                SetWindowLongPtrW(top, GWLP_USERDATA, f.0 as isize);
+            }
+            return false;
+        }
+        let f = HWND(GetWindowLongPtrW(top, GWLP_USERDATA) as _);
+        if !f.is_invalid() && IsWindow(Some(f)).as_bool() && IsWindowVisible(f).as_bool() {
+            let _ = SetFocus(Some(f));
+            return true;
+        }
+        false
+    }
+}
+
 pub fn set_label_color(h: HWND, c: COLORREF) {
     unsafe {
         SetWindowLongPtrW(h, GWLP_USERDATA, c.0 as isize + 1);

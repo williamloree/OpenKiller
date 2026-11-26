@@ -49,6 +49,7 @@ pub unsafe extern "system" fn proc(h: HWND, msg: u32, wp: WPARAM, lp: LPARAM) ->
             return LRESULT(1);
         }
         WM_ERASEBKGND => return LRESULT(1),
+        WM_ACTIVATE if theme::keep_focus(h, wp) => return LRESULT(0),
         WM_PAINT => {
             let mut ps = PAINTSTRUCT::default();
             unsafe {
@@ -130,8 +131,8 @@ impl Builder {
     }
     /// Cancel + action buttons, bottom right of a `w` x `h` dialog.
     fn buttons(&self, w: i32, h: i32, ok: &str, kind: Kind) -> (HWND, HWND) {
-        let cancel = self.button(CANCEL_ID, "Annuler", Kind::Normal, w - 300, h - 52, 130);
-        let ok = self.button(OK_ID, ok, kind, w - 160, h - 52, 140);
+        let cancel = self.button(CANCEL_ID, "Annuler", Kind::Normal, w - 330, h - 52, 120);
+        let ok = self.button(OK_ID, ok, kind, w - 200, h - 52, 180);
         (cancel, ok)
     }
 }

@@ -1333,6 +1333,7 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM)
     }
     match msg {
         WM_ERASEBKGND => return LRESULT(1),
+        WM_ACTIVATE if theme::keep_focus(hwnd, wp) => return LRESULT(0),
         WM_PAINT => {
             paint(hwnd);
             return LRESULT(0);

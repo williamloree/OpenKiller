@@ -138,6 +138,8 @@ pub fn scan() -> Vec<PortEntry> {
     let mut cache: HashMap<u32, (String, Option<u64>, Option<String>)> = HashMap::new();
     sockets
         .into_iter()
+        // A PID missing from the snapshot has just exited: its sockets are being torn down.
+        .filter(|s| s.pid <= 4 || names.contains_key(&s.pid))
         .map(|s| {
             let (name, memory_mb, path) = cache
                 .entry(s.pid)
