@@ -1,0 +1,50 @@
+[package]
+name = "openkiller"
+version = "2.0.0"
+edition = "2024"
+description = "Trouve qui occupe un port et libère-le en un clic : un exe Windows natif de quelques Mo."
+license = "MIT"
+repository = "https://github.com/williamloree/OpenKiller"
+
+[dependencies]
+serde_json = "1"
+
+[build-dependencies]
+embed-resource = "3"
+
+[dependencies.windows]
+version = "0.62"
+features = [
+  "Win32_Foundation",
+  "Win32_Graphics_Dwm",
+  "Win32_Graphics_Gdi",
+  "Win32_Graphics_Imaging",
+  "Win32_NetworkManagement_IpHelper",
+  "Win32_Networking_WinHttp",
+  "Win32_Networking_WinSock",
+  "Win32_Security",
+  "Win32_Security_Cryptography",
+  "Win32_Storage_Xps",
+  "Win32_System_Com",
+  "Win32_System_Com_StructuredStorage",
+  "Win32_System_Console",
+  "Win32_System_Diagnostics_ToolHelp",
+  "Win32_System_LibraryLoader",
+  "Win32_System_ProcessStatus",
+  "Win32_System_Registry",
+  "Win32_System_SystemInformation",
+  "Win32_System_Threading",
+  "Win32_UI_Controls",
+  "Win32_UI_HiDpi",
+  "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_UI_Shell",
+  "Win32_UI_Shell_Common",
+  "Win32_UI_WindowsAndMessaging",
+]
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
