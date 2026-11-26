@@ -52,12 +52,8 @@ fn main() {
             return;
         }
         Some("--screenshot") => {
-            let (Some(png), view) = (args.get(1), ui::View::parse(&args[2..])) else {
-                console();
-                eprintln!("{USAGE}");
-                std::process::exit(2);
-            };
-            let Some(view) = view else {
+            let view = args.get(2..).and_then(ui::View::parse);
+            let (Some(png), Some(view)) = (args.get(1), view) else {
                 console();
                 eprintln!("{USAGE}");
                 std::process::exit(2);

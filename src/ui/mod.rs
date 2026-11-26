@@ -792,34 +792,6 @@ impl App {
         self.refresh();
     }
 
-    fn export(&mut self, csv: bool) {
-        if self.rows.is_empty() {
-            self.status("Aucune donnée à exporter".into());
-            return;
-        }
-        let ext = if csv { "csv" } else { "json" };
-        let name = export::file_name(now(), ext);
-        let Some(path) = dialogs::save_file(self.hwnd, &name, ext) else {
-            return;
-        };
-        if self.demo {
-            self.status(format!(
-                "Export {} simulé (démo) : rien n'a été écrit",
-                ext.to_uppercase()
-            ));
-            return;
-        }
-        let data = if csv {
-            export::csv(&self.rows)
-        } else {
-            export::json(&self.rows).into_bytes()
-        };
-        self.status(match std::fs::write(&path, data) {
-            Ok(()) => format!("Export {} réussi : {}", ext.to_uppercase(), path.display()),
-            Err(e) => format!("Échec de l'export : {e}"),
-        });
-    }
-
     fn clear_search(&mut self) {
         self.search.clear();
         theme::set_text(self.c.search, "");
@@ -1168,9 +1140,7 @@ fn command(hwnd: HWND, id: i32, code: u32) {
                 a.render_ports(false);
             });
         }
-        ID_CSV | ID_JSON => {
-            app(|a| a.export(id == ID_CSV));
-        }
+        ID_CSV | ID_JSON => export(hwnd, id == ID_CSV),
         ID_KILL | ID_FAV_KILL => {
             let targets = if id == ID_KILL {
                 app(|a| Ok(a.port_targets()))
@@ -1299,6 +1269,41 @@ fn command(hwnd: HWND, id: i32, code: u32) {
         }
         _ => {}
     }
+}
+
+/// Export of the displayed rows; the Save As dialog runs outside the APP borrow.
+fn export(hwnd: HWND, csv: bool) {
+    let Some((rows, demo)) = app(|a| (a.rows.clone(), a.demo)) else {
+        return;
+    };
+    if rows.is_empty() {
+        status(hwnd, "Aucune donnée à exporter".into());
+        return;
+    }
+    let ext = if csv { "csv" } else { "json" };
+    let Some(path) = dialogs::save_file(hwnd, &export::file_name(now(), ext), ext) else {
+        return;
+    };
+    let kind = ext.to_uppercase();
+    if demo {
+        status(
+            hwnd,
+            format!("Export {kind} simulé (démo) : rien n'a été écrit"),
+        );
+        return;
+    }
+    let data = if csv {
+        export::csv(&rows)
+    } else {
+        export::json(&rows).into_bytes()
+    };
+    status(
+        hwnd,
+        match std::fs::write(&path, data) {
+            Ok(()) => format!("Export {kind} réussi : {}", path.display()),
+            Err(e) => format!("Échec de l'export : {e}"),
+        },
+    );
 }
 
 fn take_shot(hwnd: HWND) {
@@ -1514,4 +1519,20 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM)
         _ => {}
     }
     unsafe { DefWindowProcW(hwnd, msg, wp, lp) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::View;
+
+    #[test]
+    fn view_args() {
+        let a = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(View::parse(&a(&[])), Some(View::Ports));
+        assert_eq!(View::parse(&a(&["--view", "kill"])), Some(View::Kill));
+        assert_eq!(View::parse(&a(&["--view", "presets"])), Some(View::Presets));
+        assert_eq!(View::parse(&a(&["--view"])), None);
+        assert_eq!(View::parse(&a(&["--view", "nope"])), None);
+        assert_eq!(View::parse(&a(&["--view", "ports", "extra"])), None);
+    }
 }
